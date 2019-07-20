@@ -1,5 +1,6 @@
 use std::alloc;
 use std::ops;
+use std::ptr;
 
 /// Allocate in blocks of type `B`.
 type B = u64;
@@ -28,8 +29,7 @@ impl BitVec {
             panic!("unable to initialize (allocate) bitvec");
         }
 
-        // alloc::dealloc(ptr, layout);
-
+        #[allow(clippy::cast_ptr_alignment)]
         BitVec {
             store: ptr as *mut _,
             num_stores: 1,
@@ -55,17 +55,13 @@ impl BitVec {
     #[inline]
     fn lookup_store(&self, index: usize) -> *const B {
         let store_index = index / Self::store_size();
-        let store = unsafe { self.store.add(store_index) };
-
-        store
+        unsafe { self.store.add(store_index) }
     }
 
     #[inline]
     fn lookup_store_mut(&self, index: usize) -> *mut B {
         let store_index = index / Self::store_size();
-        let store = unsafe { self.store.add(store_index) };
-
-        store
+        unsafe { self.store.add(store_index) }
     }
 
     #[inline]
@@ -80,11 +76,12 @@ impl BitVec {
 
         self.num_stores += 1;
 
+        #[allow(clippy::cast_ptr_alignment)]
         unsafe {
             self.store = alloc::realloc(
                 self.store as *mut _,
                 layout,
-                self.num_stores * std::mem::size_of::<u64>(),
+                self.num_stores * std::mem::size_of::<B>(),
             ) as *mut _;
         }
 
@@ -126,13 +123,13 @@ impl BitVec {
 
         if element {
             unsafe {
-                *store_ptr_mut = *store_ptr_mut | index_mask;
+                *store_ptr_mut |= index_mask;
             }
         } else {
             let neg_index_mask = !index_mask;
 
             unsafe {
-                *store_ptr_mut = *store_ptr_mut & neg_index_mask;
+                *store_ptr_mut &= neg_index_mask;
             }
         }
     }
