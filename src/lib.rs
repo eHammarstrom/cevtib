@@ -1,4 +1,5 @@
 use std::alloc;
+use std::convert::TryInto;
 use std::ops;
 
 /// Allocate in blocks of type `B`.
@@ -69,11 +70,15 @@ impl BitVec {
         1 << bit_index
     }
 
-    /// Grow number of stores, reallocating with an additional store
-    fn grow(&mut self) {
+    /// Grow or shrink number of stores by a relative change.
+    fn resize(&mut self, relative_change: isize) {
+        assert!(self.num_stores as isize + relative_change > 0);
+
         let layout = alloc::Layout::new::<B>();
 
-        self.num_stores += 1;
+        self.num_stores = (self.num_stores as isize + relative_change)
+            .try_into()
+            .expect("unable to resize bitvec");
 
         #[allow(clippy::cast_ptr_alignment)]
         unsafe {
@@ -87,6 +92,16 @@ impl BitVec {
         if self.store.is_null() {
             panic!("unable to grow (reallocate) bitvec");
         }
+    }
+
+    /// Adds 1 store page.
+    fn grow(&mut self) {
+        self.resize(1);
+    }
+
+    /// Removes 1 store page.
+    fn shrink(&mut self) {
+        self.resize(-1);
     }
 
     /// Retrieve boolean within capacity bounds, this may
@@ -145,7 +160,7 @@ impl BitVec {
         }
     }
 
-    /// Push boolean bit onto bit vector.
+    /// Push boolean bit onto bitvec.
     pub fn push(&mut self, val: bool) {
         self.len += 1;
 
@@ -156,6 +171,23 @@ impl BitVec {
         if self.len() >= self.capacity() {
             self.grow();
         }
+    }
+
+    /// Pop boolean bit off the bitvec.
+    pub fn pop(&mut self) -> Option<bool> {
+        let b = if self.len > 0 {
+            self.len -= 1;
+            Some(self.get_unchecked(self.len))
+        } else {
+            None
+        };
+
+        // remove a store if we have two empty stores
+        if self.len < (self.capacity() - Self::store_size() * 2) {
+            self.shrink();
+        }
+
+        b
     }
 }
 
@@ -250,5 +282,43 @@ mod tests {
         assert_eq!(139, b.len());
         assert_eq!(None, b.get(139));
         assert_eq!(Some(true), b.get(138));
+    }
+
+    #[test]
+    fn bitvec_shrink() {
+        let mut b = BitVec::new();
+        let num_indices = 139;
+
+        for _ in 0..num_indices {
+            b.push(true);
+        }
+
+        for i in 0..num_indices {
+            let val = b.get(i);
+            assert_eq!(Some(true), val);
+        }
+
+        assert_eq!(192, b.capacity());
+        assert_eq!(139, b.len());
+
+        // test spurious false during pop
+        let false_index = 128;
+        let _ = b.set(false_index, false);
+
+        let remove_indices = 100;
+
+        for i in 0..remove_indices {
+            let val = b.pop();
+
+            // check inserted false val on pop
+            if num_indices - i - 1 == false_index {
+                assert_eq!(Some(false), val);
+            } else {
+                assert_eq!(Some(true), val);
+            }
+        }
+
+        assert_eq!(128, b.capacity());
+        assert_eq!(num_indices - remove_indices, b.len());
     }
 }
