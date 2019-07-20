@@ -118,7 +118,6 @@ impl BitVec {
     }
 
     /// Retrieve boolean within the current length.
-    #[must_use]
     pub fn get(&self, index: usize) -> Option<bool> {
         if index < self.len() {
             Some(self.get_unchecked(index))
@@ -147,7 +146,6 @@ impl BitVec {
     }
 
     /// Set boolean at index `i` within current length.
-    #[must_use]
     pub fn set(&mut self, index: usize, element: bool) -> Result<(), Error> {
         if index < self.len() {
             self.set_unchecked(index, element);
