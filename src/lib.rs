@@ -32,7 +32,7 @@ impl BitVec {
         #[allow(clippy::cast_ptr_alignment)]
         BitVec {
             store: ptr as *mut _,
-            num_stores: 1,
+            num_stores: 2,
             len: 0,
         }
     }
@@ -71,14 +71,17 @@ impl BitVec {
     }
 
     /// Grow or shrink number of stores by a relative change.
-    fn resize(&mut self, relative_change: isize) {
-        assert!(self.num_stores as isize + relative_change > 0);
-
-        let layout = alloc::Layout::new::<B>();
-
-        self.num_stores = (self.num_stores as isize + relative_change)
+    fn resize(&mut self, change: isize) {
+        self.num_stores = (self.num_stores as isize + change)
             .try_into()
             .expect("unable to resize bitvec");
+
+        // We shrank past elements, set new len
+        if self.len() > self.capacity() {
+            self.len = self.capacity();
+        }
+
+        let layout = alloc::Layout::new::<B>();
 
         #[allow(clippy::cast_ptr_alignment)]
         unsafe {
@@ -94,22 +97,19 @@ impl BitVec {
         }
     }
 
-    /// Adds 1 store page.
+    /// Double the block allocation.
     fn grow(&mut self) {
-        self.resize(1);
+        self.resize(self.num_stores as isize);
     }
 
-    /// Removes 1 store page.
-    fn shrink(&mut self) {
-        self.resize(-1);
+    /// Removes n store pages.
+    pub fn shrink_blocks_by(&mut self, n: isize) {
+        self.resize(-n);
     }
 
     /// Retrieve boolean within capacity bounds, this may
     /// return a default initilization of value `false`.
     pub fn get_unchecked(&self, index: usize) -> bool {
-        // out of memory bounds
-        assert!(index < self.capacity());
-
         let store_ptr = self.lookup_store(index);
         let index_mask = self.lookup_mask(index);
         let b = unsafe { *store_ptr } & index_mask;
@@ -130,9 +130,6 @@ impl BitVec {
     /// Sets any boolean within capacity at index `i`,
     /// without changing the length representation of the bitvec.
     pub fn set_unchecked(&mut self, index: usize, element: bool) {
-        // out of memory bounds
-        assert!(index < self.capacity());
-
         let store_ptr_mut = self.lookup_store_mut(index);
         let index_mask = self.lookup_mask(index);
 
@@ -160,34 +157,28 @@ impl BitVec {
         }
     }
 
-    /// Push boolean bit onto bitvec.
+    /// Push boolean bit onto bitvec, growing
+    /// the bitvec if `len == capacity`.
     pub fn push(&mut self, val: bool) {
+        if self.len() >= self.capacity() {
+            self.grow();
+        }
+
         self.len += 1;
 
         let index = self.len - 1;
 
         assert!(self.set(index, val).is_ok());
-
-        if self.len() >= self.capacity() {
-            self.grow();
-        }
     }
 
     /// Pop boolean bit off the bitvec.
     pub fn pop(&mut self) -> Option<bool> {
-        let b = if self.len > 0 {
+        if self.len > 0 {
             self.len -= 1;
             Some(self.get_unchecked(self.len))
         } else {
             None
-        };
-
-        // remove a store if we have two empty stores
-        if self.len < (self.capacity() - Self::store_size() * 2) {
-            self.shrink();
         }
-
-        b
     }
 }
 
@@ -210,7 +201,7 @@ mod tests {
 
     #[test]
     fn bitvec_initial_cap() {
-        assert_eq!(64, BitVec::new().capacity());
+        assert_eq!(128, BitVec::new().capacity());
     }
 
     #[test]
@@ -219,14 +210,6 @@ mod tests {
 
         assert_eq!(false, b.get_unchecked(0));
         assert_eq!(false, b.get_unchecked(63));
-    }
-
-    #[test]
-    #[should_panic]
-    fn bitvec_get_unchecked_panic() {
-        let b = BitVec::new();
-
-        b.get_unchecked(64);
     }
 
     #[test]
@@ -273,12 +256,12 @@ mod tests {
             assert_eq!(Some(true), val);
         }
 
-        assert_eq!(192, b.capacity());
+        assert_eq!(256, b.capacity());
         assert_eq!(139, b.len());
 
         b.grow();
 
-        assert_eq!(256, b.capacity());
+        assert_eq!(512, b.capacity());
         assert_eq!(139, b.len());
         assert_eq!(None, b.get(139));
         assert_eq!(Some(true), b.get(138));
@@ -298,7 +281,7 @@ mod tests {
             assert_eq!(Some(true), val);
         }
 
-        assert_eq!(192, b.capacity());
+        assert_eq!(256, b.capacity());
         assert_eq!(139, b.len());
 
         // test spurious false during pop
@@ -317,6 +300,8 @@ mod tests {
                 assert_eq!(Some(true), val);
             }
         }
+
+        b.shrink_blocks_by(2);
 
         assert_eq!(128, b.capacity());
         assert_eq!(num_indices - remove_indices, b.len());
