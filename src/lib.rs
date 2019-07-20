@@ -11,8 +11,8 @@ struct BitVec {
     store: *mut B,
     /// Number of byte stores of size B
     num_stores: usize,
-    /// Internal index of last unset bit
-    index: usize,
+    /// Length of current sequence, index = len - 1
+    len: usize,
 }
 
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl BitVec {
         BitVec {
             store: ptr as *mut _,
             num_stores: 1,
-            index: 0,
+            len: 0,
         }
     }
 
@@ -49,7 +49,7 @@ impl BitVec {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.index + 1
+        self.len
     }
 
     #[inline]
@@ -90,8 +90,8 @@ impl BitVec {
         }
     }
 
-    /// Retrieve boolean at unchecked index `i` where
-    /// `i` is assumed to be within bounds.
+    /// Retrieve boolean within capacity bounds, this may
+    /// return a default initilization of value `false`.
     pub fn get_unchecked(&self, index: usize) -> bool {
         // out of memory bounds
         assert!(index < self.capacity());
@@ -103,7 +103,7 @@ impl BitVec {
         b > 0
     }
 
-    /// Retrieve boolean at checked index `i`.
+    /// Retrieve boolean within the current length.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<bool> {
         if index < self.len() {
@@ -113,7 +113,8 @@ impl BitVec {
         }
     }
 
-    /// Sets boolean at unchecked index `i`.
+    /// Sets any boolean within capacity at index `i`,
+    /// without changing the length representation of the bitvec.
     pub fn set_unchecked(&mut self, index: usize, element: bool) {
         // out of memory bounds
         assert!(index < self.capacity());
@@ -134,7 +135,7 @@ impl BitVec {
         }
     }
 
-    /// Set boolean at index `i`.
+    /// Set boolean at index `i` within current length.
     #[must_use]
     pub fn set(&mut self, index: usize, element: bool) -> Result<(), Error> {
         if index < self.len() {
@@ -147,9 +148,11 @@ impl BitVec {
 
     /// Push boolean bit onto bit vector.
     pub fn push(&mut self, val: bool) {
-        assert!(self.set(self.index, val).is_ok());
+        self.len += 1;
 
-        self.index += 1;
+        let index = self.len - 1;
+
+        assert!(self.set(index, val).is_ok());
 
         if self.len() >= self.capacity() {
             self.grow();
@@ -216,6 +219,16 @@ mod tests {
     }
 
     #[test]
+    fn bitvec_set() {
+        let mut b = BitVec::new();
+        b.push(true);
+        let r1 = b.set(0, false);
+        let r2 = b.set(63, true);
+        assert!(r1.is_ok());
+        assert!(r2.is_err());
+    }
+
+    #[test]
     fn bitvec_grow() {
         let mut b = BitVec::new();
         let num_indices = 139;
@@ -228,5 +241,15 @@ mod tests {
             let val = b.get(i);
             assert_eq!(Some(true), val);
         }
+
+        assert_eq!(192, b.capacity());
+        assert_eq!(139, b.len());
+
+        b.grow();
+
+        assert_eq!(256, b.capacity());
+        assert_eq!(139, b.len());
+        assert_eq!(None, b.get(139));
+        assert_eq!(Some(true), b.get(138));
     }
 }
