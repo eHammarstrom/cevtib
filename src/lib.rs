@@ -1,7 +1,5 @@
 use std::alloc;
 use std::ops;
-use std::ptr;
-use std::slice;
 
 /// Allocate in blocks of type `B`.
 type B = u64;
@@ -27,7 +25,7 @@ impl BitVec {
         let ptr = unsafe { alloc::alloc_zeroed(layout) };
 
         if ptr.is_null() {
-            panic!("unable to allocate bitvec");
+            panic!("unable to initialize (allocate) bitvec");
         }
 
         // alloc::dealloc(ptr, layout);
@@ -57,7 +55,7 @@ impl BitVec {
     #[inline]
     fn lookup_store(&self, index: usize) -> *const B {
         let store_index = index / Self::store_size();
-        let store = unsafe { self.store.offset(store_index as isize) };
+        let store = unsafe { self.store.add(store_index) };
 
         store
     }
@@ -65,7 +63,7 @@ impl BitVec {
     #[inline]
     fn lookup_store_mut(&self, index: usize) -> *mut B {
         let store_index = index / Self::store_size();
-        let store = unsafe { self.store.offset(store_index as isize) };
+        let store = unsafe { self.store.add(store_index) };
 
         store
     }
@@ -76,7 +74,24 @@ impl BitVec {
         1 << bit_index
     }
 
-    fn grow(&mut self) {}
+    /// Grow number of stores, reallocating with an additional store
+    fn grow(&mut self) {
+        let layout = alloc::Layout::new::<B>();
+
+        self.num_stores += 1;
+
+        unsafe {
+            self.store = alloc::realloc(
+                self.store as *mut _,
+                layout,
+                self.num_stores * std::mem::size_of::<u64>(),
+            ) as *mut _;
+        }
+
+        if self.store.is_null() {
+            panic!("unable to grow (reallocate) bitvec");
+        }
+    }
 
     /// Retrieve boolean at unchecked index `i` where
     /// `i` is assumed to be within bounds.
@@ -135,8 +150,6 @@ impl BitVec {
 
     /// Push boolean bit onto bit vector.
     pub fn push(&mut self, val: bool) {
-        unimplemented!();
-
         assert!(self.set(self.index, val).is_ok());
 
         self.index += 1;
@@ -203,5 +216,20 @@ mod tests {
         assert_eq!(true, b.get_unchecked(31));
 
         assert_eq!(false, b.get_unchecked(32));
+    }
+
+    #[test]
+    fn bitvec_grow() {
+        let mut b = BitVec::new();
+        let num_indices = 139;
+
+        for _ in 0..num_indices {
+            b.push(true);
+        }
+
+        for i in 0..num_indices {
+            let val = b.get(i);
+            assert_eq!(Some(true), val);
+        }
     }
 }
