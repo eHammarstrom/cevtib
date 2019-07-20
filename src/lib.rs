@@ -1,6 +1,5 @@
 use std::alloc;
 use std::ops;
-use std::ptr;
 
 /// Allocate in blocks of type `B`.
 type B = u64;
