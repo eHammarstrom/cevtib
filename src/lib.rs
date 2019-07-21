@@ -1,12 +1,26 @@
-use std::alloc;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::alloc as __alloc;
+#[cfg(not(feature = "std"))]
+use core::convert::TryInto;
+#[cfg(not(feature = "std"))]
+use core::mem;
+#[cfg(not(feature = "std"))]
+use core::ops;
+
+#[cfg(feature = "std")]
+use std::alloc::alloc as __alloc;
+#[cfg(feature = "std")]
 use std::convert::TryInto;
+#[cfg(feature = "std")]
 use std::ops;
 
 /// Allocate in blocks of type `B`.
 type B = u64;
 
 #[derive(Debug, PartialEq)]
-struct BitVec {
+pub struct BitVec {
     /// Byte sequence used to store bits
     store: *mut B,
     /// Number of byte stores of size B
@@ -21,9 +35,9 @@ pub enum Error {
 }
 
 impl BitVec {
-    fn new() -> BitVec {
-        let layout = alloc::Layout::new::<B>();
-        let ptr = unsafe { alloc::alloc_zeroed(layout) };
+    pub fn new() -> BitVec {
+        let layout = __alloc::Layout::new::<B>();
+        let ptr = unsafe { __alloc::alloc_zeroed(layout) };
 
         if ptr.is_null() {
             panic!("unable to initialize (allocate) bitvec");
@@ -39,7 +53,7 @@ impl BitVec {
 
     #[inline]
     fn store_size() -> usize {
-        std::mem::size_of::<B>() * 8
+        mem::size_of::<B>() * 8
     }
 
     #[inline]
@@ -81,14 +95,14 @@ impl BitVec {
             self.len = self.capacity();
         }
 
-        let layout = alloc::Layout::new::<B>();
+        let layout = __alloc::Layout::new::<B>();
 
         #[allow(clippy::cast_ptr_alignment)]
         unsafe {
-            self.store = alloc::realloc(
+            self.store = __alloc::realloc(
                 self.store as *mut _,
                 layout,
-                self.num_stores * std::mem::size_of::<B>(),
+                self.num_stores * mem::size_of::<B>(),
             ) as *mut _;
         }
 
@@ -182,9 +196,9 @@ impl BitVec {
 
 impl ops::Drop for BitVec {
     fn drop(&mut self) {
-        let layout = alloc::Layout::new::<B>();
+        let layout = __alloc::Layout::new::<B>();
 
-        unsafe { alloc::dealloc(self.store as *mut _, layout) };
+        unsafe { __alloc::dealloc(self.store as *mut _, layout) };
     }
 }
 
