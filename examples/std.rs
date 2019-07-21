@@ -14,4 +14,6 @@ fn main() {
         print!("{}, ", b.get(i).unwrap());
     }
     println!();
+
+    println!("{}", b);
 }

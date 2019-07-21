@@ -4,7 +4,6 @@ use alloc::alloc as __alloc;
 use core::cmp;
 use core::convert::TryInto;
 use core::fmt;
-use core::iter;
 use core::mem;
 use core::ops;
 
@@ -79,6 +78,15 @@ impl<B: BitStore> BitVec<B> {
     #[inline]
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    #[inline]
+    fn store_as_copy(&self, index: usize) -> Option<B> {
+        if index < self.num_stores {
+            Some(unsafe { *self.store.add(index) })
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -207,6 +215,22 @@ impl<B: BitStore> BitVec<B> {
             None
         }
     }
+
+    /// Iterator over bit stores
+    pub fn iter_stores(&self) -> Stores<'_, B> {
+        Stores {
+            bitvec: &self,
+            index: 0,
+        }
+    }
+
+    /// Iterator over bits, represented by booleans
+    pub fn iter_bits(&self) -> Bits<'_, B> {
+        Bits {
+            bitvec: &self,
+            index: 0,
+        }
+    }
 }
 
 impl<B> ops::Drop for BitVec<B> {
@@ -217,17 +241,50 @@ impl<B> ops::Drop for BitVec<B> {
     }
 }
 
-impl<B> iter::Iterator for BitVec<B> {
+pub struct Stores<'a, T> {
+    bitvec: &'a BitVec<T>,
+    index: usize,
+}
+
+impl<'a, B: BitStore> Iterator for Stores<'a, B> {
     type Item = B;
 
     fn next(&mut self) -> Option<Self::Item> {
-        unimplemented!();
+        let b = self.bitvec.store_as_copy(self.index);
+
+        if b.is_some() {
+            self.index += 1;
+        }
+
+        b
     }
 }
 
-impl<B: fmt::Display> fmt::Display for BitVec<B> {
+pub struct Bits<'a, T> {
+    bitvec: &'a BitVec<T>,
+    index: usize,
+}
+
+impl<'a, B: BitStore> Iterator for Bits<'a, B> {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let b = self.bitvec.get(self.index);
+
+        if b.is_some() {
+            self.index += 1;
+        }
+
+        b
+    }
+}
+
+impl<B: fmt::Display + BitStore> fmt::Display for BitVec<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        unimplemented!();
+        for bit in self.iter_bits() {
+            write!(f, "{:b}", bit as u8)?;
+        }
+        Ok(())
     }
 }
 
@@ -350,5 +407,36 @@ mod tests {
 
         assert_eq!(128, b.capacity());
         assert_eq!(num_indices - remove_indices, b.len());
+    }
+
+    #[test]
+    fn bitvec_iterator() {
+        let mut b = bv();
+
+        for i in 0..10 {
+            b.push(i % 2 == 0);
+        }
+
+        let mut iter = b.iter_bits();
+        for i in 0..10 {
+            assert_eq!(Some(i % 2 == 0), iter.next());
+        }
+
+        assert_eq!(None, iter.next());
+    }
+
+    #[test]
+    fn bitvec_display() {
+        let mut b = bv();
+
+        for _ in 0..4 {
+            b.push(true);
+        }
+
+        b.push(false);
+        b.push(false);
+        b.push(true);
+
+        assert_eq!("1111001", format!("{}", b));
     }
 }
