@@ -1,14 +1,46 @@
 extern crate alloc;
+
 use alloc::alloc as __alloc;
+use core::cmp;
 use core::convert::TryInto;
+use core::fmt;
+use core::iter;
 use core::mem;
 use core::ops;
 
-/// Allocate in blocks of type `B`.
-type B = u64;
+macro_rules! bitstore_trait_impl(
+   ($( $t:ty ) +) => (
+       $(impl BitStore for $t {
+           fn bits() -> usize { mem::size_of::<$t>() * 8 }
+           fn zero() -> $t { 0 }
+           fn one() -> $t { 1 }
+       })*
+   )
+);
+
+pub trait BitStore:
+    Sized
+    + Copy
+    + fmt::Display
+    + fmt::Debug
+    + ops::Shl<usize, Output = Self>
+    + ops::Shr<usize, Output = Self>
+    + ops::Not<Output = Self>
+    + ops::BitAnd<Output = Self>
+    + ops::BitAndAssign
+    + ops::BitOr<Output = Self>
+    + ops::BitOrAssign
+    + cmp::PartialOrd
+{
+    fn bits() -> usize;
+    fn zero() -> Self;
+    fn one() -> Self;
+}
+
+bitstore_trait_impl!(u8 u16 u32 u64 u128);
 
 #[derive(Debug, PartialEq)]
-pub struct BitVec {
+pub struct BitVec<B> {
     /// Byte sequence used to store bits
     store: *mut B,
     /// Number of byte stores of size B
@@ -22,8 +54,8 @@ pub enum Error {
     OutOfBounds,
 }
 
-impl BitVec {
-    pub fn new() -> BitVec {
+impl<B: BitStore> BitVec<B> {
+    pub fn new() -> BitVec<B> {
         let layout = __alloc::Layout::new::<B>();
         let ptr = unsafe { __alloc::alloc_zeroed(layout) };
 
@@ -40,13 +72,8 @@ impl BitVec {
     }
 
     #[inline]
-    fn store_size() -> usize {
-        mem::size_of::<B>() * 8
-    }
-
-    #[inline]
     pub fn capacity(&self) -> usize {
-        self.num_stores * Self::store_size()
+        self.num_stores * B::bits()
     }
 
     #[inline]
@@ -56,20 +83,20 @@ impl BitVec {
 
     #[inline]
     fn lookup_store(&self, index: usize) -> *const B {
-        let store_index = index / Self::store_size();
+        let store_index = index / B::bits();
         unsafe { self.store.add(store_index) }
     }
 
     #[inline]
     fn lookup_store_mut(&self, index: usize) -> *mut B {
-        let store_index = index / Self::store_size();
+        let store_index = index / B::bits();
         unsafe { self.store.add(store_index) }
     }
 
     #[inline]
     fn lookup_mask(&self, index: usize) -> B {
-        let bit_index = index % Self::store_size();
-        1 << bit_index
+        let bit_index = index % B::bits();
+        B::one() << bit_index
     }
 
     /// Grow or shrink number of stores by a relative change.
@@ -116,7 +143,7 @@ impl BitVec {
         let index_mask = self.lookup_mask(index);
         let b = unsafe { *store_ptr } & index_mask;
 
-        b > 0
+        b > B::zero()
     }
 
     /// Retrieve boolean within the current length.
@@ -182,7 +209,7 @@ impl BitVec {
     }
 }
 
-impl ops::Drop for BitVec {
+impl<B> ops::Drop for BitVec<B> {
     fn drop(&mut self) {
         let layout = __alloc::Layout::new::<B>();
 
@@ -190,23 +217,41 @@ impl ops::Drop for BitVec {
     }
 }
 
+impl<B> iter::Iterator for BitVec<B> {
+    type Item = B;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unimplemented!();
+    }
+}
+
+impl<B: fmt::Display> fmt::Display for BitVec<B> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        unimplemented!();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::BitVec;
 
+    fn bv() -> BitVec<u64> {
+        BitVec::<u64>::new()
+    }
+
     #[test]
     fn bitvec_alloc() {
-        BitVec::new();
+        bv();
     }
 
     #[test]
     fn bitvec_initial_cap() {
-        assert_eq!(128, BitVec::new().capacity());
+        assert_eq!(128, bv().capacity());
     }
 
     #[test]
     fn bitvec_get_unchecked() {
-        let b = BitVec::new();
+        let b = bv();
 
         assert_eq!(false, b.get_unchecked(0));
         assert_eq!(false, b.get_unchecked(63));
@@ -214,7 +259,7 @@ mod tests {
 
     #[test]
     fn bitvec_set_unchecked() {
-        let mut b = BitVec::new();
+        let mut b = bv();
 
         b.set_unchecked(63, true);
         b.set_unchecked(33, true);
@@ -234,7 +279,7 @@ mod tests {
 
     #[test]
     fn bitvec_set() {
-        let mut b = BitVec::new();
+        let mut b = bv();
         b.push(true);
         let r1 = b.set(0, false);
         let r2 = b.set(63, true);
@@ -244,7 +289,7 @@ mod tests {
 
     #[test]
     fn bitvec_grow() {
-        let mut b = BitVec::new();
+        let mut b = bv();
         let num_indices = 139;
 
         for _ in 0..num_indices {
@@ -269,7 +314,7 @@ mod tests {
 
     #[test]
     fn bitvec_shrink() {
-        let mut b = BitVec::new();
+        let mut b = bv();
         let num_indices = 139;
 
         for _ in 0..num_indices {
