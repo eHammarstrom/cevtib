@@ -1,20 +1,8 @@
-#[cfg(not(feature = "std"))]
 extern crate alloc;
-#[cfg(not(feature = "std"))]
 use alloc::alloc as __alloc;
-#[cfg(not(feature = "std"))]
 use core::convert::TryInto;
-#[cfg(not(feature = "std"))]
 use core::mem;
-#[cfg(not(feature = "std"))]
 use core::ops;
-
-#[cfg(feature = "std")]
-use std::alloc::alloc as __alloc;
-#[cfg(feature = "std")]
-use std::convert::TryInto;
-#[cfg(feature = "std")]
-use std::ops;
 
 /// Allocate in blocks of type `B`.
 type B = u64;
