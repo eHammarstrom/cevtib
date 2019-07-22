@@ -81,6 +81,11 @@ impl<B: BitStore> BitVec<B> {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
     fn store_as_copy(&self, index: usize) -> Option<B> {
         if index < self.num_stores {
             Some(unsafe { *self.store.add(index) })
@@ -90,19 +95,18 @@ impl<B: BitStore> BitVec<B> {
     }
 
     #[inline]
-    fn lookup_store(&self, index: usize) -> *const B {
-        let store_index = index / B::bits();
-        unsafe { self.store.add(store_index) }
-    }
-
-    #[inline]
     fn lookup_store_mut(&self, index: usize) -> *mut B {
         let store_index = index / B::bits();
         unsafe { self.store.add(store_index) }
     }
 
     #[inline]
-    fn lookup_mask(&self, index: usize) -> B {
+    fn lookup_store(&self, index: usize) -> *const B {
+        self.lookup_store_mut(index) as *const _
+    }
+
+    #[inline]
+    fn index_mask(&self, index: usize) -> B {
         let bit_index = index % B::bits();
         B::one() << bit_index
     }
@@ -148,7 +152,7 @@ impl<B: BitStore> BitVec<B> {
     /// return a default initilization of value `false`.
     pub fn get_unchecked(&self, index: usize) -> bool {
         let store_ptr = self.lookup_store(index);
-        let index_mask = self.lookup_mask(index);
+        let index_mask = self.index_mask(index);
         let b = unsafe { *store_ptr } & index_mask;
 
         b > B::zero()
@@ -167,17 +171,13 @@ impl<B: BitStore> BitVec<B> {
     /// without changing the length representation of the bitvec.
     pub fn set_unchecked(&mut self, index: usize, element: bool) {
         let store_ptr_mut = self.lookup_store_mut(index);
-        let index_mask = self.lookup_mask(index);
+        let index_mask = self.index_mask(index);
 
-        if element {
-            unsafe {
+        unsafe {
+            if element {
                 *store_ptr_mut |= index_mask;
-            }
-        } else {
-            let neg_index_mask = !index_mask;
-
-            unsafe {
-                *store_ptr_mut &= neg_index_mask;
+            } else {
+                *store_ptr_mut &= !index_mask;
             }
         }
     }
@@ -208,7 +208,7 @@ impl<B: BitStore> BitVec<B> {
 
     /// Pop boolean bit off the bitvec.
     pub fn pop(&mut self) -> Option<bool> {
-        if self.len > 0 {
+        if !self.is_empty() {
             self.len -= 1;
             Some(self.get_unchecked(self.len))
         } else {
